@@ -1,0 +1,588 @@
+---
+title: "Jones_Assignment5"
+author: "Steve Jones"
+date: "April 20, 2017"
+output:
+  html_document:
+    depth: 4
+    highlight: tango
+    number_sections: no
+    theme: united
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+# Purpose
+HomeTown Bank wants to predict whether an unknown client will subscribe to a term deposit
+
+# Student Comment - Steve Jones
+The layout of this markdown is based on a project found on Github. I've tweaked and altered the code to fit the requirements of Homework 5.
+Since this is a large Markdown - I added Echo = False to my R chunks. The actual code is available in the 
+markdown. No need to have code in the output.
+
+
+
+# Environment Prep - Install and load packages
+
+##### If package not already installed then install it
+```{r, echo = FALSE, warning=FALSE, message=FALSE, results='hide'}
+if (!require("ggplot2",character.only = TRUE)) (install.packages("ggplot2",dep=TRUE))
+if (!require("MASS",character.only = TRUE)) (install.packages("MASS",dep=TRUE))
+if (!require("knitr",character.only = TRUE)) (install.packages("knitr",dep=TRUE))
+if (!require("xtable",character.only = TRUE)) (install.packages("xtable",dep=TRUE))
+if (!require("dplyr",character.only = TRUE)) (install.packages("dplyr",dep=TRUE))
+if (!require("psych",character.only = TRUE)) (install.packages("psych",dep=TRUE))
+if (!require("stringr",character.only = TRUE)) (install.packages("stringr",dep=TRUE))
+if (!require("car",character.only = TRUE)) (install.packages("car",dep=TRUE))
+if (!require("faraway",character.only = TRUE)) (install.packages("faraway",dep=TRUE))
+if (!require("aod",character.only = TRUE)) (install.packages("aod",dep=TRUE))
+if (!require("Rcpp",character.only = TRUE)) (install.packages("Rcpp",dep=TRUE))
+if (!require("leaps",character.only = TRUE)) (install.packages("leaps",dep=TRUE))
+if (!require("ISLR",character.only = TRUE)) (install.packages("ISLR",dep=TRUE))
+if (!require("AUC",character.only = TRUE)) (install.packages("AUC",dep=TRUE))
+if (!require("ROCR",character.only = TRUE)) (install.packages("ROCR",dep=TRUE))
+if (!require("Amelia",character.only = TRUE)) (install.packages("Amelia",dep=TRUE))
+if (!require("popbio",character.only = TRUE)) (install.packages("popbio",dep=TRUE))
+if (!require("gdata",character.only = TRUE)) (install.packages("gdata",dep=TRUE))
+if (!require("reshape",character.only = TRUE)) (install.packages("reshape",dep=TRUE))
+if (!require("rpart",character.only = TRUE)) (install.packages("rpart",dep=TRUE))
+if (!require("randomForest",character.only = TRUE)) (install.packages("randomForest",dep=TRUE))
+if (!require("ResourceSelection",character.only = TRUE)) (install.packages("ResourceSelection",dep=TRUE))
+if (!require("boot",character.only = TRUE)) (install.packages("boot",dep=TRUE))
+if (!require("pander",character.only = TRUE)) (install.packages("pander",dep=TRUE))
+if (!require("cowplot",character.only = TRUE)) (install.packages("cowplot",dep=TRUE))
+
+
+##### Load packages
+
+library(ggplot2)
+library(MASS)
+library(knitr)
+library(xtable)
+library(dplyr)
+library(psych)
+library(stringr)
+library(car)
+library(faraway)
+library(aod)
+library(Rcpp)
+library(leaps)
+library(ISLR)
+library(AUC)
+library(ROCR)
+library(Amelia)
+library(popbio)
+library(gdata)
+library(reshape)
+library(gridExtra)
+library(rpart)
+library(randomForest)
+library(boot)
+library(ResourceSelection)
+library(pander)
+library(cowplot)
+```
+Preloading all packages in this manner does not appear to work. As I got near the bottom of this markdown I had to load packages that I thought had been loaded in this section.
+
+# Data Exploration
+  In this section, I load the data and explore it
+  
+```{r}
+
+setwd("C:/Rockhurst/ADM/Data")
+
+bank <- read.csv("bank-full_sjj.csv")
+str(bank)
+names(bank)
+summary(bank)
+
+
+# examine categorical/factor variables  
+# showing the number of observations with missing data (if any)
+#### y
+print(table(bank$y , useNA = c("always")))
+
+#### job
+print(table(bank$job , useNA = c("always")))
+
+#### marital
+print(table(bank$marital , useNA = c("always")))
+
+#### education
+print(table(bank$education , useNA = c("always")))
+
+#### default
+print(table(bank$default , useNA = c("always")))
+
+#### housing
+print(table(bank$housing , useNA = c("always")))
+
+#### loan
+print(table(bank$loan , useNA = c("always")))
+
+#### contact
+print(table(bank$contact , useNA = c("always")))
+
+#### month
+print(table(bank$month , useNA = c("always")))
+
+#### poutcome
+print(table(bank$poutcome , useNA = c("always")))
+
+#### No missing values in any of the columns
+
+
+#Train = 36169
+#Test = 9042
+
+ 
+####Rearranging the columns so the target variable is first
+bank<-bank[,c(17,1:16)]
+
+#### Balance has negatives
+#### Assuming that most banks have a minimum balance requirement to keep account open. I will assume Hometown min ####balance is $100
+
+bank$balance..number <- ifelse(bank$balance..number<100, bank$balance..number * 0 + 100, bank$balance..number )
+
+
+# Validation approach using 80-20 split
+#set.seed(123)
+#bank_train<-data.frame(bank[1:36169, ]) 
+#bank_test<-data.frame(bank[36170:45211, ])  
+
+#### Randomized observation training and test creation
+set.seed(123) #set a seed to do draws from a random uniform distribution.
+bank_rand <- bank[order(runif(45211)), ] 
+bank_train <- bank_rand[1:36169, ] #Training data set; 20000 observations
+bank_test  <-bank_rand[36170:45211, ]
+
+
+```
+
+
+# Data Preparation
+
+ I performed the following transformations on the data either R or directly in Excel:
+ 
+- I randomly selected 80% of the observations as a model training and the remaining 20% was used for testing 
+- Convert Binary variable to 0 and 1 from yes and no(Excel)
+- concatenate categorical variable name to all values within the column example "job_" (excel)
+- Set balance to bank's min balance requirement
+- Create dummy variables for categorical variables (R)
+- Data Summary Analysis (R)
+
+
+
+
+## Data Preparation - Train
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+bank_train2<-bank_train
+
+#### y..category
+### Could not get If/then/else code to work so I convert this field in Excel
+
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#str(bank_train2)
+
+#### age..number
+#----------------------------------------------------------------------------------------------------------
+ 
+####
+#----------------------------------------------------------------------------------------------------------
+ 
+#### job..category
+library(psych)
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$job..category))
+
+#Delete original catagorical variable
+bank_train2$job..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#head(bank_train2)
+
+#### marital..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$marital..category))
+#Delete original catagorical variable
+bank_train2$marital..category<- NULL
+#head(bank_train2)
+#----------------------------------------------------------------------------------------------------------
+
+
+#### education..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$education..category))
+#Delete original catagorical variable
+bank_train2$education..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### default..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$default..category))
+#Delete original catagorical variable
+bank_train2$default..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### balance..number
+bank_train2$balance..number <- ifelse(bank_train2$balance..number<100, bank_train2$balance..number * 0 + 100, bank_train2$balance..number )
+
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### housing..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$housing..category))
+#Delete original catagorical variable
+bank_train2$housing..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### loan..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$loan..category))
+#Delete original catagorical variable
+bank_train2$loan..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### contact..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$contact..category))
+#Delete original catagorical variable
+bank_train2$contact..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### day..number
+
+
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### month..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$month..category))
+#Delete original catagorical variable
+bank_train2$month..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### duration..number
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#### campaign..number
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#### pdays..number
+bank_train2$pdays..number <- ifelse(bank_train2$pdays..number<0, 0, bank_train2$pdays..number )
+
+
+ 
+#dummy variable for pdays -previous contact yes or no ; 1 or 0  when 999
+bank_train2$previous_contact <- as.numeric(ifelse(bank_train2$pdays == 999, 0, 1))
+#----------------------------------------------------------------------------------------------------------
+ 
+#### previous..number
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#### poutcome..category
+
+bank_train2<- cbind(bank_train2,dummy.code(bank_train2$poutcome..category))
+#Delete original catagorical variable
+bank_train2$poutcome..category <- NULL
+
+head(bank_train2)
+#----------------------------------------------------------------------------------------------------------
+``` 
+
+## Data Preparation - Test
+
+```{r}
+
+bank_test2<-bank_test
+
+#### y..category
+### Could not get If/then/else code to work so I convert this field in Excel
+
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#str(bank_test2)
+
+#### age..number
+#----------------------------------------------------------------------------------------------------------
+ 
+####
+#----------------------------------------------------------------------------------------------------------
+ 
+#### job..category
+library(psych)
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$job..category))
+
+#Delete original catagorical variable
+bank_test2$job..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#head(bank_test2)
+
+#### marital..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$marital..category))
+#Delete original catagorical variable
+bank_test2$marital..category<- NULL
+#head(bank_test2)
+#----------------------------------------------------------------------------------------------------------
+
+
+#### education..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$education..category))
+#Delete original catagorical variable
+bank_test2$education..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### default..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$default..category))
+#Delete original catagorical variable
+bank_test2$default..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### balance..number
+bank_test2$balance..number <- ifelse(bank_test2$balance..number<100, bank_test2$balance..number * 0 + 100, bank_test2$balance..number )
+
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### housing..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$housing..category))
+#Delete original catagorical variable
+bank_test2$housing..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### loan..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$loan..category))
+#Delete original catagorical variable
+bank_test2$loan..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### contact..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$contact..category))
+#Delete original catagorical variable
+bank_test2$contact..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+#### day..number
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### month..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$month..category))
+#Delete original catagorical variable
+bank_test2$month..category <- NULL
+#----------------------------------------------------------------------------------------------------------
+ 
+
+#### duration..number
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#### campaign..number
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#### pdays..number
+bank_test2$pdays..number <- ifelse(bank_test2$pdays..number<0, 0, bank_test2$pdays..number )
+
+
+ 
+#dummy variable for pdays -previous contact yes or no ; 1 or 0  when 999
+bank_test2$previous_contact <- as.numeric(ifelse(bank_test2$pdays == 999, 0, 1))
+#----------------------------------------------------------------------------------------------------------
+ 
+#### previous..number
+
+#----------------------------------------------------------------------------------------------------------
+ 
+#### poutcome..category
+
+bank_test2<- cbind(bank_test2,dummy.code(bank_test2$poutcome..category))
+#Delete original catagorical variable
+bank_test2$poutcome..category <- NULL
+
+#----------------------------------------------------------------------------------------------------------
+
+head(bank_test2)
+
+```
+
+
+# Model Building
+
+ In this section I created my models. The following are the three different approaches that will be used here:
+
+- Model 1: This model will be created by using logit function of Generalized Logistics Model (GLM).
+- Model 2: This model will be created by using Decision tree function.  
+- Model 3: This model will be created by using classification technique Random Forests model.
+
+
+
+## Logistics Regression - Model 1
+
+ Logistics regression function GLM has been used to classify the campaign response variable. Basic model generated by using GLM function has been enhanced by making necessary adjustments to non-associated predictor variables shown as "NA" in basic model output. model1_update is the final model with all "NA" variables excluded
+
+I made several iterations before the final selection of variables were made. See "model1_update"
+The Logit model also identified day, duration marital status, housing, loan, contact, poutcome as signicant variables in this dataset. The logit model also identified Sep and Oct as non-significant months. 
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE,eval=TRUE, results="hide"}
+bank_train2$y..category<-as.factor(bank_train2$y..category)
+model1 <- glm(y..category ~.,family=binomial,data=na.omit(bank_train2))
+summary(model1)
+
+#anova(model1, test="Chisq")
+model1_update<-glm(y..category ~.
+                   -marital_single
+                   -job_student
+                   -education_tertiary
+                   -education_tertiary
+                   -default_yes
+                   -housing_yes
+                   -loan_yes
+                   -previous_contact
+                   -contact_cellular
+                   -month_sep
+                   -poutcome_success
+                   -month_oct
+                   
+                              ,family=binomial,data=na.omit(bank_train2))
+
+summary(model1_update)
+
+
+# Find odds ratio
+exp(coef(model1_update))
+ 
+# Odd ratio with 95% confidence interval
+exp(cbind(OddsRatio=coef(model1_update),confint(model1_update)))
+
+
+```
+
+
+
+##  Decision tree - Model 2
+
+ 
+  
+```{r,echo = FALSE, warning=FALSE, message=FALSE}
+library(rpart)
+set.seed(123)
+#### Code from class
+#model2 <- rpart(bank_train2$y..category~., method="class", parms = list(split="gini"), #data=bank_train2)
+
+
+
+
+#par(mfrow=c(1,1))
+#### code from github project
+model2 <- rpart(y..category~., data=na.omit(bank_train2), method = "class")
+
+model2
+model2_update <- prune(model2, cp = model2$cptable[which.min(model2$cptable[,"xerror"]),"CP"])
+#summary(model2_update)
+
+#plot(model2_update, uniform=TRUE, main="Classification Tree for term deposit subscribers v2")
+#text(model2_update, use.n=TRUE, all=TRUE, cex=0.8)
+
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+ 
+fancyRpartPlot(model2)
+
+
+
+```
+
+  Not sure if I'm interpreting this correctly but duration appears to be the most important variableT from this model: With a total of 2 leaves (decision points) having been formed from this model. 
+The model indicates duraction of last contact is a big indicator of potential to subscribe to term deposit. The longer the call the greater the opportunity to subscribe.
+
+  
+
+
+\newpage
+
+## RandomForest- Model 3
+
+
+
+```{r,echo = FALSE, warning=FALSE, message=FALSE}
+library(randomForest)
+# Random Forest prediction of Kyphosis data
+
+model3 <- randomForest(as.factor(y..category) ~ .,data=bank_train2,importance=TRUE, ntree=50)
+print(model3) # view results 
+importance(model3)
+
+
+model4 <- randomForest(as.factor(y..category) ~ .,data=bank_train2,importance=TRUE, ntree=100)
+print(model4)
+importance(model4)
+
+# #plot model 3
+# 
+ par(mfrow=c(2,3))
+# 
+layout(matrix(c(1,2),nrow=1),
+width=c(1,1)) 
+par(mar=c(1,1,2,0)) #No margin on the right side
+plot(model3, log="y")
+par(mar=c(3,3,1,1)) #No margin on the left side
+plot(c(0,1),type="n", axes=F, xlab="", ylab="")
+legend("top", colnames(model3$err.rate),col=1:3,cex=0.8,fill=1:4)
+# 
+# # plot model 4
+# 
+layout(matrix(c(1,2),nrow=1),
+width=c(1,1)) 
+par(mar=c(1,1,2,1)) #No margin on the right side
+plot(model4, log="y")
+par(mar=c(1,3,1,1)) #No margin on the left side
+plot(c(0,1),type="n", axes=F, xlab="", ylab="")
+legend("top", colnames(model4$err.rate),col=1:3,cex=0.8,fill=1:4)
+# 
+
+```
+
+
+
+# Final Recommendation
+
+ My models indicated that the variable "duration" is the most important variable by far. The duration variable has positive impact in subscription outcome. It could be due to the fact that longer the customer stays on phone, a more productive conversation is taking place to get the customer start their term deposit Account.
+
+
+ In conclusion, it can be suggested to the Hometown bank management that they invest in retraining customer service staff to focus on engaging clients who call in. The decision tree indicates a call greater than 13 minutes has the most impact. I also identified September and October as non-critical months and it is recommended that Hometown implement these new processes or customer service improvements during these months. 
+
+\newpage
+
+
+# References
+[Layout and Structure of this Markdown](https://github.com/kishkp/data621-ctg5/blob/master/Final%20Project/apa8.Rmd)
+<p>
+[How to create a Table of Content in R Markdown](http://stackoverflow.com/questions/23957278/how-to-add-table-of-contents-in-rmarkdown)
